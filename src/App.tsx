@@ -1,191 +1,188 @@
-import { useCallback, useEffect, useState } from "react";
-import { checkWin, aiPlayer } from "./utils/gameLogic";
-import Strike from "./strike";
-import { ScoreBoard } from "./ScoreBoard";
-import GameOverModel from "./GameOverModel";
+import { useState } from "react";
+import { ScoreBoard } from "./components/ScoreBoard";
+import { aiPlayer, checkWin, isAllPosFill } from "./utils/gameLogic";
+import GameOverModel from "./components/GameOverModel";
+import GameBoard from "./components/GameBoard";
 import { gameSound } from "./utils/gameSound";
 
 type move = "x" | "o" | "";
 type GameBoard = move[];
 
-const defaultGameBoard: GameBoard = new Array(9).fill("");
-
-type GameState = {
-  playerWin: null | move | "tie";
-  winningPattern: null | number[];
-  currTurn: move;
-  gameBoard: move[];
-};
-
-const intitalGameState: GameState = {
-  currTurn: "x",
-  playerWin: null,
-  winningPattern: null,
-  gameBoard: defaultGameBoard,
-};
+const emptyGameBoard: GameBoard = new Array(9).fill("");
 
 export default function App() {
   const [score, setScore] = useState({ x: 0, o: 0, tie: 0 });
   const [isPlayer2Ai, setIsPlayer2Ai] = useState(true);
-  const [difficulty, setDifficulty] = useState(1);
-  const [gameState, setGameState] = useState<GameState>(intitalGameState);
-
-  const draw = useCallback(
-    (i: number) => {
-      //if game is over or position is already filled return
-      if (gameState.playerWin || gameState.gameBoard[i]) return;
-
-      const newGameBoard = gameState.gameBoard.map((v, j) =>
-        j === i ? gameState.currTurn : v,
-      );
-
-      setGameState((p) => {
-        return {
-          ...p,
-          gameBoard: newGameBoard,
-          currTurn: p.currTurn === "x" ? "o" : "x",
-        };
-      });
-
-      overGameIfAnyWin(newGameBoard);
-
-      gameState.currTurn === "x" ? gameSound.xSound() : gameSound.ySound();
-    },
-    [gameState],
+  const [board, setBoard] = useState<GameBoard>(emptyGameBoard);
+  const [currPlayer, setCurrPlayer] = useState<"x" | "o">("x");
+  const [aiDifficulty, setDifficulty] = useState<"easy" | "medium" | "hard">(
+    "hard",
   );
 
-  //Reseting game to default
-  const reset = () => {
-    setGameState(intitalGameState);
-    setScore({ x: 0, o: 0, tie: 0 });
+  const [win, setWin] = useState<{
+    isGameOver: boolean;
+    playerWin?: "x" | "o" | "tie";
+    winPath?: number[];
+    winPathType?: "diag-left" | "col" | "row" | "diag-right";
+  }>({ isGameOver: false });
+
+  const isAiChance = currPlayer === "o" && isPlayer2Ai;
+
+  const handleAiMove = (gameBoard: GameBoard) => {
+    setTimeout(() => {
+      const move = aiPlayer(gameBoard, aiDifficulty);
+      const newBoard = gameBoard.map((v, i) => (i === move ? "o" : v));
+      setBoard(newBoard);
+      checkForGameOver(newBoard);
+      setCurrPlayer("x");
+      gameSound.ySound();
+    }, 500);
   };
 
-  //for restaring game
-  const start = () => {
-    setGameState((p) => ({ ...intitalGameState, currTurn: p.currTurn }));
-  };
+  const playTurn = (at: number) => {
+    if (board[at] || win.isGameOver || isAiChance) return;
+    const newBoard = board.map((v, i) => (i === at ? currPlayer : v));
+    setBoard(newBoard);
+    const isOver = checkForGameOver(newBoard);
+    setCurrPlayer((prev) => (prev === "x" ? "o" : "x"));
 
-  const overGameIfAnyWin = (board: GameBoard) => {
-    const { playerWin, patternMatch } = checkWin(board);
-    console.log({ playerWin });
-    if (!playerWin) return;
-    playerWin === "tie" ? gameSound.drawSound() : gameSound.winSound();
-    setGameState((p) => ({
-      ...p,
-      playerWin,
-      winningPattern: patternMatch,
-    }));
-
-    setScore((p) => ({ ...p, [playerWin]: p[playerWin] + 1 }));
-  };
-
-  useEffect(() => {
-    if (isPlayer2Ai && gameState.currTurn === "o" && !gameState.playerWin) {
-      setTimeout(
-        () => draw(aiPlayer(gameState.gameBoard, difficulty).index as number),
-        300,
-      );
+    if (currPlayer === "x") {
+      gameSound.xSound();
+      setCurrPlayer("o");
+      if (isPlayer2Ai && !isOver) handleAiMove(newBoard);
+    } else {
+      gameSound.ySound();
+      setCurrPlayer("x");
     }
-  }, [gameState, isPlayer2Ai, draw, difficulty]);
+
+    return newBoard as GameBoard;
+  };
+
+  const checkForGameOver = (gameBoard: GameBoard) => {
+    const win = checkWin(gameBoard);
+    if (!win && isAllPosFill(gameBoard)) {
+      setScore((prev) => ({ ...prev, tie: prev.tie + 1 }));
+
+      setWin({ isGameOver: true, playerWin: "tie" });
+
+      return true;
+    }
+
+    if (win) {
+      setScore((p) => ({
+        ...p,
+        [win.playerWin]: p[win.playerWin] + 1,
+      }));
+      setWin({
+        isGameOver: true,
+        playerWin: win.playerWin,
+        winPath: win.winPath,
+        winPathType: win.pathType,
+      });
+      return true;
+    }
+  };
+
+  const reset = (hardReset?: boolean) => {
+    const newBoard = [...emptyGameBoard];
+    setBoard(newBoard);
+    setWin({ isGameOver: false });
+    if (hardReset) {
+      setScore({ x: 0, o: 0, tie: 0 });
+      setCurrPlayer("x");
+    }
+
+    if (isAiChance) handleAiMove(newBoard);
+  };
+
+  const switchGameMode = (mode: 1 | 2) => {
+    if (mode === 1 && isPlayer2Ai) return;
+    if (mode === 2 && !isPlayer2Ai) return;
+    setIsPlayer2Ai(mode === 1 ? true : false);
+    reset(true);
+  };
+
+  const switchDifficulty = (val: "easy" | "medium" | "hard") => () => {
+    if (val === aiDifficulty) return;
+    setDifficulty(val);
+    reset(true);
+  };
 
   return (
-    <div className=" absolute left-0 right-0 top-0 mx-auto min-h-screen bg-black">
-      <main className="z-50 flex min-h-screen w-full flex-col items-center">
-        {/*Game mode Selector*/}
-
-        <div className=" mt-4 text-white">
+    <main className="flex min-h-screen w-full flex-col items-center">
+      {/*Game mode Selector*/}
+      <div className=" mt-4 text-white">
+        <div className=" flex">
+          <button
+            aria-label="Select one-player mode"
+            className={` rounded-l-sm border-r bg-neutral-700 px-6 ${!isPlayer2Ai && "opacity-45"}`}
+            onClick={() => switchGameMode(1)}
+          >
+            1 Player
+          </button>
+          <button
+            aria-label="Select two-player mode"
+            className={`rounded-r-sm bg-neutral-700 px-6 ${isPlayer2Ai && "opacity-45"}`}
+            onClick={() => switchGameMode(2)}
+          >
+            2 Player
+          </button>
+        </div>
+      </div>
+      {isPlayer2Ai && (
+        <div className=" mt-2 text-white">
           <div className=" flex">
             <button
-              className={`border-r bg-neutral-700 px-6 ${!isPlayer2Ai && "opacity-45"}`}
-              onClick={() => {
-                reset();
-                setIsPlayer2Ai(true);
-              }}
+              className={` rounded-l-sm border-r bg-neutral-700 px-6 ${aiDifficulty !== "easy" && "opacity-45"}`}
+              onClick={switchDifficulty("easy")}
             >
-              1 Player
+              Easy
             </button>
             <button
-              className={`bg-neutral-700 px-6 ${isPlayer2Ai && "opacity-45"}`}
-              onClick={() => {
-                reset();
-                setIsPlayer2Ai(false);
-              }}
+              className={`bg-neutral-700 px-6 ${aiDifficulty !== "medium" && "opacity-45"}`}
+              onClick={switchDifficulty("medium")}
             >
-              2 Player
+              Medium
             </button>
-            {isPlayer2Ai && (
-              <select
-                title="Difficulty level"
-                className="ml-1 cursor-pointer bg-neutral-700 px-2 text-sm"
-                onChange={(e) => {
-                  reset();
-                  setDifficulty(+e.target.value);
-                }}
-                value={difficulty}
-              >
-                <option value={1}>Easy</option>
-                <option value={3}>Medium</option>
-                <option value={6}>Hard</option>
-                <option value={Infinity}>Expert</option>
-              </select>
-            )}
+            <button
+              className={`rounded-r-sm bg-neutral-700 px-6 ${aiDifficulty !== "hard" && "opacity-45"}`}
+              onClick={switchDifficulty("hard")}
+            >
+              Hard
+            </button>
           </div>
         </div>
+      )}
 
-        {/*Current Player Turn showcase */}
-        <p className=" mt-5 flex items-center gap-3 text-center text-lg font-bold tracking-wider text-white">
-          Player
-          <span
-            style={{ color: gameState.currTurn === "x" ? "red" : "blue" }}
-            className="text-2xl uppercase"
-          >
-            {gameState.currTurn}
-          </span>
-          Turns
-        </p>
+      {/*Current Player Turn showcase */}
+      <p className=" mt-3 flex items-center gap-3 text-center text-lg font-bold tracking-wider text-white">
+        <span
+          style={{ color: currPlayer === "x" ? "red" : "blue" }}
+          className="text-2xl uppercase"
+        >
+          {currPlayer}
+        </span>
+        Turns
+      </p>
 
-        {/* Game Board */}
-        <section className=" mt-14">
-          <div
-            className={`grid h-[300px] w-[300px] grid-cols-3  grid-rows-3 gap-0.5 bg-white outline-none sm:w-[350px]`}
-          >
-            {gameState.gameBoard.map((move, i) => {
-              return (
-                <button
-                  key={i}
-                  className={`group relative flex cursor-pointer items-center justify-center bg-black text-[70px] font-bold uppercase text-white
-                  active:animate-pulse
-                `}
-                  style={{
-                    color: move === "x" ? "red" : "blue",
-                  }}
-                  onClick={() => draw(i)}
-                  disabled={isPlayer2Ai && gameState.currTurn === "o"}
-                >
-                  {/* If value is not exits then show curr player in with ghost effect on hover */}
-                  {!move && (
-                    <span className="absolute hidden uppercase text-neutral-200 opacity-10 group-hover:block">
-                      {gameState.currTurn}
-                    </span>
-                  )}
-                  {move}
-                  <Strike pattern={gameState.winningPattern || []} i={i} />
-                </button>
-              );
-            })}
-          </div>
-        </section>
+      {/* Game Board */}
+      <GameBoard
+        onPlay={playTurn}
+        currPlayer={currPlayer}
+        winPath={win.winPath}
+        pathType={win.winPathType}
+        board={board}
+      />
 
-        <ScoreBoard score={score} isPlayer2Computer={isPlayer2Ai} />
+      <ScoreBoard score={score} isPlayer2Computer={isPlayer2Ai} />
 
-        {gameState.playerWin && (
-          <GameOverModel
-            playerWin={gameState.playerWin}
-            onReplyClick={start}
-            onResetClick={reset}
-          />
-        )}
-      </main>
-    </div>
+      {win.isGameOver && (
+        <GameOverModel
+          playerWin={win.playerWin}
+          onReplyClick={() => reset()}
+          onResetClick={() => reset(true)}
+        />
+      )}
+    </main>
   );
 }

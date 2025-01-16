@@ -20,6 +20,12 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "backup/reducer.ts"],
+  "include": [
+    "src",
+    "backup/reducer.ts",
+    ".d/App2.tsx",
+    ".d/useGame.tsx",
+    ".d/useTicToeGame.tsx"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
